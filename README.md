@@ -1,5 +1,8 @@
 # Convolutional Neural Network Visualizations 
 
+This repo is a fork from [CNN visualization techniques implemented in Pytorch](https://github.com/nkennek/pytorch-cnn-visualizations).
+Intended for use and test on your own trained model, as a visualization module.
+
 ## Implemented Techniques
 This repo contains following CNN visualization techniques implemented in Pytorch: 
 
