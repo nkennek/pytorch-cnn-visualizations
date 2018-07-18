@@ -11,7 +11,7 @@ setup(
     include_package_data=True,
     install_requires=[
         'numpy==1.14.5',
-        'opencv-python==3.4.1.15'
+        'opencv-python==3.4.1.15',
         'torch==0.4.0',
         'torchvision==0.2.1',
     ],
