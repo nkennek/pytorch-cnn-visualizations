@@ -16,38 +16,36 @@ class CamExtractor(object):
     model: nn.Module
     target_layer: int
     gradients: torch.Tensor
+    do_explicit_flatten: bool
 
-    def __init__(self, model: nn.Module, target_layer: int) -> None:
+    def __init__(self, model: nn.Module, target_layer: int,
+                 do_explicit_flatten: bool = False) -> None:
         self.model = model
         self.target_layer = target_layer
         self.gradients = None
+        self.do_explicit_flatten = do_explicit_flatten
 
     def save_gradient(self, grad: torch.Tensor) -> None:
         """ save backward gradient to member variable """
         self.gradients = grad
 
-    def forward_pass_on_convolutions(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    def forward_pass(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         """
-            Does a forward pass on convolutions, hooks the function at given layer
+            Does a forward pass and hooks the function at given layer
         """
         conv_output = None
-        for module_pos, module in self.model.features._modules.items():
+
+        module_num = len(list(self.model.children()))
+        for module_pos, module in enumerate(list(self.model.children())):
+            if self.do_explicit_flatten and module_pos == module_num - 1:
+                x = x.view(x.size(0), -1)
+
             x = module(x)  # Forward
             if int(module_pos) == self.target_layer:
+                print(module)
                 x.register_hook(self.save_gradient)
                 conv_output = x  # Save the convolution output on that layer
 
-        return conv_output, x
-
-    def forward_pass(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-        """
-            Does a full forward pass on the model
-        """
-        # Forward pass on the convolutions
-        conv_output, x = self.forward_pass_on_convolutions(x)
-        x = x.view(x.size(0), -1)  # Flatten
-        # Forward pass on the classifier
-        x = self.model.classifier(x)
         return conv_output, x
 
 
@@ -62,15 +60,25 @@ class GradCam(object):
     model: nn.Module
     extractor: CamExtractor
 
-    def __init__(self, model: nn.Module, target_layer: int) -> None:
-        self.model = model
+    def __init__(self, model: nn.Module, target_layer: int,
+                 device: torch.device=None,
+                 scanner_args: dict = {}) -> None:
+        self.device = device
+        if device is None:  # Not Specified
+            self.device = torch.device(
+                'cuda' if torch.cuda.is_available() else 'cpu')
+
+        self.model = model.to(self.device)
+        for param in self.model.parameters():
+            param.requires_grad = True
+
         self.model.eval()
         # Define extractor
-        self.extractor = CamExtractor(self.model, target_layer)
+        self.extractor = CamExtractor(self.model, target_layer, **scanner_args)
 
     def generate_cam(self,
                      input_image: torch.Tensor,
-                     target_class: int = None
+                     target_class: int
                      ) -> np.ndarray:
         """ generate gradcam heatmap """
 
@@ -83,21 +91,21 @@ class GradCam(object):
             target_class = np.argmax(model_output.data.numpy())
 
         # Target for backprop
-        one_hot_output = torch.FloatTensor(1, model_output.size()[-1]).zero_()
+        one_hot_output = torch.FloatTensor(
+            1, model_output.size()[-1]).to(self.device).zero_()
         one_hot_output[0][target_class] = 1
 
         # Zero grads
-        self.model.features.zero_grad()
-        self.model.classifier.zero_grad()
+        self.model.zero_grad()
 
         # Backward pass with specified target
         model_output.backward(gradient=one_hot_output, retain_graph=True)
 
         # Get hooked gradients
-        guided_gradients = self.extractor.gradients.data.numpy()[0]
+        guided_gradients = self.extractor.gradients.cpu().data.numpy()[0]
 
         # Get convolution outputs
-        target = conv_output.data.numpy()[0]
+        target = conv_output.cpu().data.numpy()[0]
 
         # Get weights from gradients by taking averages
         weights = np.mean(guided_gradients, axis=(1, 2))
@@ -111,7 +119,7 @@ class GradCam(object):
 
         cam = cv2.resize(cam, (224, 224))
         cam = np.maximum(cam, 0)
-        cam = (cam - np.min * cam) - (np.max(cam) -
-                                      np.min(cam))  # Normalize between 0-1
+        cam = (cam - np.min(cam)) / (np.max(cam) -
+                                     np.min(cam))  # Normalize between 0-1
         cam = np.uint8(cam * 255)  # Scale between 0-255 to visualize
         return cam

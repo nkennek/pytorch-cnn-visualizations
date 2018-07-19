@@ -7,6 +7,8 @@ import numpy as np
 import torch
 import torch.nn as nn
 
+from torch.autograd import Variable
+
 from .base import BackProp
 from .vanilla import VanillaBackprop
 
@@ -35,21 +37,19 @@ class SmoothGrad(BackProp):
                  model: nn.Module,
                  param_n: int,
                  param_sigma_multiplier: int,
+                 device: torch.device = None,
                  backpropCls: Type[BackProp] = VanillaBackprop
                  ) -> None:
 
         # super init is not called intentionally because this object utilizes
         # child BackProp object for main calculation.
 
-        self.child_backprop = backpropCls(model)
+        self.child_backprop = backpropCls(model, device)
         self.param_n = param_n
         self.param_sigma_multiplier = param_sigma_multiplier
-        model_last_layer: nn.Module = list(
-            self.child_backprop.model.children())[-1]
-        self.target_class_num = model_last_layer.out_features
 
     def generate_gradients(self,
-                           input_image: torch.Tensor,
+                           input_image: Variable,
                            target_class: int
                            ) -> np.ndarray:
 
@@ -59,20 +59,29 @@ class SmoothGrad(BackProp):
         mean = 0
         sigma = self.param_sigma_multiplier / \
             (torch.max(input_image) - torch.min(input_image)).data[0]
+
+        # prepare numpy image array to initialize leaf variable
+        input_image_np = input_image.cpu().data.numpy()
+
         for _ in range(self.param_n):
             # Generate noise
-
-            noise = torch.Tensor(
-                input_image.data.new(
-                    input_image.size()
-                ).normal_(mean, sigma**2))
+            noise = np.random.normal(mean, sigma, size=input_image_np.shape)
             # Add noise to the image
-            noisy_img = input_image + noise
+            noisy_imp_np = input_image_np + noise
+            noisy_img = torch.from_numpy(
+                noisy_imp_np
+            ).type(
+                torch.FloatTensor
+            ).to(
+                self.child_backprop.device
+            )
+            noisy_img.requires_grad_()
             # Calculate gradients
             vanilla_grads = self.child_backprop.generate_gradients(
                 noisy_img, target_class)
             # Add gradients to smooth_grad
             smooth_grad = smooth_grad + vanilla_grads
+
         # Average it out
         smooth_grad = smooth_grad / self.param_n
         return smooth_grad

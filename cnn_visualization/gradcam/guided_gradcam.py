@@ -19,13 +19,16 @@ class GuidedGradCam(GradCam):
     extractor: CamExtractor
     backprop: GuidedBackProp
 
-    def __init__(self, model: nn.Module, target_layer: int) -> None:
-        super(GuidedGradCam, self).__init__(model, target_layer)
-        self.backprop = GuidedBackProp(model)
+    def __init__(self, model: nn.Module, target_layer: int,
+                 device: torch.device,
+                 scanner_args: dict = {}) -> None:
+        super(GuidedGradCam, self).__init__(
+            model, target_layer, device, scanner_args)
+        self.backprop = GuidedBackProp(model, device)
 
     def generate_cam(self,
                      input_image: torch.Tensor,
-                     target_class: int = None
+                     target_class: int
                      ) -> np.ndarray:
 
         gradcam_mask: np.ndarray = super(GuidedGradCam, self).generate_cam(
