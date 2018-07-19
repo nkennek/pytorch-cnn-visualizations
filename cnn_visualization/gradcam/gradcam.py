@@ -17,13 +17,16 @@ class CamExtractor(object):
     target_layer: int
     gradients: torch.Tensor
     do_explicit_flatten: bool
+    verbose: bool
 
     def __init__(self, model: nn.Module, target_layer: int,
-                 do_explicit_flatten: bool = False) -> None:
+                 do_explicit_flatten: bool = False,
+                 verbose: bool = True) -> None:
         self.model = model
         self.target_layer = target_layer
         self.gradients = None
         self.do_explicit_flatten = do_explicit_flatten
+        self.verbose = verbose
 
     def save_gradient(self, grad: torch.Tensor) -> None:
         """ save backward gradient to member variable """
@@ -42,7 +45,9 @@ class CamExtractor(object):
 
             x = module(x)  # Forward
             if int(module_pos) == self.target_layer:
-                print(module)
+                if self.verbose:
+                    print('layer to hook: \n{}'.format(module))
+
                 x.register_hook(self.save_gradient)
                 conv_output = x  # Save the convolution output on that layer
 
@@ -59,10 +64,12 @@ class GradCam(object):
 
     model: nn.Module
     extractor: CamExtractor
+    verbose: bool
 
     def __init__(self, model: nn.Module, target_layer: int,
                  device: torch.device=None,
-                 scanner_args: dict = {}) -> None:
+                 scanner_args: dict = {},
+                 verbose: bool = True) -> None:
         self.device = device
         if device is None:  # Not Specified
             self.device = torch.device(
@@ -71,9 +78,9 @@ class GradCam(object):
         self.model = model.to(self.device)
         for param in self.model.parameters():
             param.requires_grad = True
-
         self.model.eval()
         # Define extractor
+        scanner_args['verbose'] = verbose
         self.extractor = CamExtractor(self.model, target_layer, **scanner_args)
 
     def generate_cam(self,

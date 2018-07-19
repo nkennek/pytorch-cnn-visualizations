@@ -21,9 +21,10 @@ class GuidedGradCam(GradCam):
 
     def __init__(self, model: nn.Module, target_layer: int,
                  device: torch.device,
-                 scanner_args: dict = {}) -> None:
+                 scanner_args: dict = {},
+                 verbose: bool = True) -> None:
         super(GuidedGradCam, self).__init__(
-            model, target_layer, device, scanner_args)
+            model, target_layer, device, scanner_args, verbose)
         self.backprop = GuidedBackProp(model, device)
 
     def generate_cam(self,
